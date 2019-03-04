@@ -1,7 +1,12 @@
 // TCPServer project main.go
 package main
 
+/**
+本程序用于给位置隐私保护程序建立转发树使用
+*/
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"log"
 	"net"
@@ -13,6 +18,7 @@ import (
 
 func main() {
 	// 开启服务器
+
 	openTcpServer(8261)
 }
 
@@ -28,6 +34,16 @@ var ipTable = [3]string{"192.168.137.1"}
 var clientIndex = 1 // 用户id号
 var mutex sync.Mutex
 
+// 消息类型
+const IP_SERVER_MSG = 0
+
+// 运行模式
+const NC_MODE_STRING = "NC模式"
+const OD_MODE_STRING = "OD模式"
+
+var runMode = NC_MODE_STRING
+
+// 处理到来消息
 func solveSocketMsg(addr net.Addr) string {
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -51,13 +67,13 @@ func solveSocketMsg(addr net.Addr) string {
 
 	// 取出父节点ip地址
 	fatherIp := ipTable[clientsTree[index]]
-	for i, temp := range ipTable {
-		if temp != "" {
-			fmt.Println(strconv.Itoa(i)+"	"+temp)
-		}
-	}
 
-	ret := strconv.Itoa(index) + "  " + fatherIp
+	printTreeMsg()
+
+	// 运行模式   NC模式 和 OD模式
+
+	// 返回数据的格式   运行模式  + 节点分配来的序号 + 父节点IP
+	ret := runMode + "," + strconv.Itoa(index) + "," + fatherIp
 	return ret
 }
 
@@ -85,8 +101,19 @@ func openTcpServer(port int) {
 		log.Print(splits[0] + "已连接")
 		// fmt.Println(splits[1])  端口
 
+		result := solveSocketMsg(rAddr)
+
+		_, err1 := conn.Write(int32tobytes(IP_SERVER_MSG))
+		data := []byte(result)
+		_, err1 = conn.Write(int32tobytes(int32(len(data))))
+		_, err1 = conn.Write(data)
+		if err1 != nil {
+			continue
+		}
+
 		// 处理与client的交互
-		go handleClient(conn)
+		//go handleClient(conn)
+
 	}
 }
 
@@ -106,11 +133,41 @@ func handleClient(conn net.Conn) {
 		}
 		fmt.Println("Receive from client", rAddr.String(), string(buf[0:n]))
 		result := solveSocketMsg(rAddr)
-		_, err2 := conn.Write([]byte(result))
-		if err2 != nil {
+		// 先发送消息类型
+		//_, err2 := conn.Write(int32tobytes(0))
+		//if err2 != nil {
+		//	return
+		//}
+		// 发送数据长度
+		data := []byte(result)
+
+		_, err1 := conn.Write(int32tobytes(IP_SERVER_MSG))
+		_, err1 = conn.Write(int32tobytes(int32(len(data))))
+
+		_, err1 = conn.Write(data)
+		if err1 != nil {
 			return
 		}
 	}
+}
+
+func printTreeMsg() {
+	for i, temp := range ipTable {
+		if temp != "" {
+			fmt.Println(strconv.Itoa(i) + "	" + temp)
+		}
+	}
+}
+
+// 将int32转化为大端序的bytes数组
+func int32tobytes(arg int32) []byte {
+	s1 := make([]byte, 0)
+	buf := bytes.NewBuffer(s1)
+
+	// 数字转 []byte, 网络字节序为大端字节序
+	binary.Write(buf, binary.BigEndian, arg)
+
+	return buf.Bytes()
 }
 
 // 异常处理
